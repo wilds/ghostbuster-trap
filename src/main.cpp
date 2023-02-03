@@ -17,7 +17,13 @@ uint8_t servoLPin = 6;
 
 // pins for single LEDs
 uint8_t ledRedPin = 14;
-uint8_t ledYellowPin = 15;
+
+bool ledYellowIsSegment = false;  //yellow led is connected to HT16K33?
+uint8_t ledYellowPin = 15;      //adruino pin if ledYellowIsSegment=false
+                                //seg-num if ledYellowIsSegment=true
+                                
+//uint8_t ledYellowPin = 11;  //segment number
+//bool ledYellowIsSegment = true;
 
 // activation button pin
 uint8_t activationSwitchPin = 4;
@@ -29,7 +35,12 @@ boolean endingSmoke = false; // smoke effect after trap close?
 uint8_t flasherPins[3] = {10, 11, 12};
 
 //#define AUDIO_VS1053
-//#define AUDIO_DFPLAYER
+#define AUDIO_DFPLAYER
+
+//#define BAR_24BARGRAPH
+#define BAR_8X16MATRIX    //HT16K33 connected to 10 or 12 segment led
+#define NUMBER_OF_SEGMENT 10
+
 
 #if defined(AUDIO_VS1053)
 #include <Adafruit_VS1053.h>
@@ -75,7 +86,11 @@ DFRobotDFPlayerMini musicPlayer;
 Servo servoR;  // create servo object to control a servo
 Servo servoL;  // create servo object to control a servo
 
+#if defined(BAR_24BARGRAPH)
 Adafruit_24bargraph bar = Adafruit_24bargraph();
+#elif defined(BAR_8X16MATRIX)
+Adafruit_8x16matrix bar = Adafruit_8x16matrix();
+#endif
 
 uint8_t trapState = 0;
 boolean redLEDState = 1;
@@ -87,6 +102,8 @@ uint64_t whiteFlashTime = 0;
 uint64_t smokeToggleTime = 0;
 byte activeFlasher = 0;
 
+void setBar(uint8_t seg, uint8_t color);
+void setLedYellow(uint8_t color);
 void checkRemote();
 void servoTest();
 void bargraphTest();
@@ -102,12 +119,14 @@ void setup() {
   Serial.begin(57600);
   Serial.println("Who ya gonna call?");
 
-  pinMode(ledYellowPin, OUTPUT);
+  if (!ledYellowIsSegment)
+    pinMode(ledYellowPin, OUTPUT);
   pinMode(ledRedPin, OUTPUT);
 
   servoR.attach(servoRPin);  // attaches the servo on pin 3 to the servo object
   servoL.attach(servoLPin);  // attaches the servo on pin 5 to the servo object
   servoR.write(servoCloseR);
+  servoL.write(servoCloseL);
 
   pinMode(activationSwitchPin, INPUT);
 
@@ -120,16 +139,17 @@ void setup() {
   // init the bargraph LEDs
   bar.begin(0x70);  // pass in the address
 
-  for (uint8_t b = 12; b < 24; ++b) {
-    if ((b % 3) == 0)  bar.setBar(b, LED_RED);
-    if ((b % 3) == 1)  bar.setBar(b, LED_YELLOW);
-    if ((b % 3) == 2)  bar.setBar(b, LED_GREEN);
+  for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
+    setBar(b, LED_YELLOW);
+    bar.writeDisplay();
+    delay(50);
   }
   bar.writeDisplay();
-  delay(100);
-  for (uint8_t b = 0; b < 12; ++b) {
-    bar.setBar(23 - b, LED_OFF);
+  delay(50);
+  for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
+    setBar(NUMBER_OF_SEGMENT - b, LED_OFF);
     bar.writeDisplay();
+    delay(50);
   }
 
 #if defined(AUDIO_VS1053)
@@ -187,10 +207,10 @@ void setup() {
   // initialise the music player
   if (!musicPlayer.begin(mySoftwareSerial)) { // initialise the music player
     Serial.println(F("Couldn't find DFPlayer, do you have the right pins defined?"));
-    while (1);
+    //while (1);
+  } else {
+    Serial.println(F("DFPlayer Mini online"));
   }
-  Serial.println(F("DFPlayer Mini online"));
-  delay(1000);
   musicPlayer.setTimeOut(500); //Set serial communictaion time out 500ms
 
   musicPlayer.volume(30);  //Set volume value (0~30).
@@ -208,9 +228,19 @@ void loop()
   {
     Serial.println("Activate Trap!");
 
+    // playSFX
+    #if defined(AUDIO_VS1053)
+    musicPlayer.setVolume(0, 0);
+    musicPlayer.playFullFile("turn_on.mp3");
+    #elif defined(AUDIO_DFPLAYER)
+    musicPlayer.volume(30);
+    musicPlayer.play(1);
+    delay(1500);
+    #endif
+
     // open doors
-    servoR.attach(servoRPin);  // attaches the servo on pin 3 to the servo object
-    servoL.attach(servoLPin);  // attaches the servo on pin 5 to the servo object
+    //servoR.attach(servoRPin);  // attaches the servo on pin 3 to the servo object
+    //servoL.attach(servoLPin);  // attaches the servo on pin 5 to the servo object
     servoR.write(servoOpenR);
     servoL.write(servoOpenL);
 
@@ -229,21 +259,13 @@ void loop()
     activeFlasher = flasherPins[1];
     digitalWrite(activeFlasher, HIGH);
 
-    // playSFX
-    #if defined(AUDIO_VS1053)
-    musicPlayer.setVolume(0, 0);
-    musicPlayer.playFullFile("turn_on.mp3");
-    #elif defined(AUDIO_DFPLAYER)
-    musicPlayer.volume(30);
-    musicPlayer.play(1);
-    #endif
-
     // trap is open
     trapState = 1;
 
     #if defined(AUDIO_VS1053)
     musicPlayer.startPlayingFile("sprkloop.mp3");
     #elif defined(AUDIO_DFPLAYER)
+    delay(1000);
     musicPlayer.loop(2);
     #endif
   }
@@ -267,6 +289,17 @@ void loop()
       digitalWrite(smokePin, LOW);
     }
 
+        // playSFX
+    #if defined(AUDIO_VS1053)
+    musicPlayer.stopPlaying();
+    musicPlayer.playFullFile("capture.mp3");
+    #elif defined(AUDIO_DFPLAYER)
+    musicPlayer.stop();
+    musicPlayer.disableLoop();
+    musicPlayer.play(3);
+    delay(1500);
+    #endif
+
     // close doors
     //servoR.attach(servoRPin);  // attaches the servo on pin 3 to the servo object
     //servoL.attach(servoLPin);  // attaches the servo on pin 5 to the servo object
@@ -275,35 +308,27 @@ void loop()
     servoR.write(servoCloseR);
 
     
-    // playSFX
-    #if defined(AUDIO_VS1053)
-    musicPlayer.stopPlaying();
-    musicPlayer.playFullFile("capture.mp3");
-    #elif defined(AUDIO_DFPLAYER)
-    musicPlayer.stop();
-    musicPlayer.play(3);
-    #endif
-
     // Turn off servos (avoids twitching)
     //servoL.detach();
     //servoR.detach();
     
     // fill bargraph
-    for (uint8_t b = 0; b < 12; ++b) {
-      bar.setBar(23 - b, LED_YELLOW);
+    for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
+      setBar(b, LED_YELLOW);
       bar.writeDisplay();
       delay(50);
     }
 
     // yellow LED on
-    digitalWrite(ledYellowPin, HIGH);   // turn the LED on (HIGH is the voltage level)
+    setLedYellow(LED_YELLOW);   // turn the LED on (HIGH is the voltage level)
 
     // start "full" sound loop
     #if defined(AUDIO_VS1053)
     musicPlayer.setVolume(30, 30);
     musicPlayer.startPlayingFile("fullloop.mp3");
     #elif defined(AUDIO_DFPLAYER)
-    musicPlayer.volume(30);
+    delay(1000);
+    musicPlayer.volume(15);
     musicPlayer.play(4);
     #endif
   
@@ -323,9 +348,9 @@ void loop()
 
     // turn off LEDs
     digitalWrite(ledRedPin, LOW);
-    digitalWrite(ledYellowPin, LOW);
-    for (uint8_t b = 0; b < 12; ++b) {
-      bar.setBar(23 - b, LED_OFF);
+    setLedYellow(LED_OFF);
+    for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
+      setBar(b, LED_OFF);
       bar.writeDisplay();
     }
 
@@ -403,6 +428,24 @@ void loop()
   }
 }
 
+
+void setBar(uint8_t seg, uint8_t color) {
+#if defined(BAR_24BARGRAPH)
+  bar.setBar(bar, color);
+#elif defined(BAR_8X16MATRIX)
+  bar.drawPixel(seg, 0, color);
+#endif  
+}
+
+
+void setLedYellow(uint8_t color) {
+  if (!ledYellowIsSegment)
+    digitalWrite(ledYellowPin, color);    // turn the LED off by making the voltage LOW
+  else {
+    setBar(ledYellowPin, color);
+    bar.writeDisplay();
+  }
+}
 // MP3 FILE NAMES:
 // turn_on.mp3
 // sparks.mp3
@@ -443,11 +486,11 @@ void servoTest()
 void bargraphTest()
 {
   // Bargraph Test
-  for (uint8_t b = 0; b < 12; ++b) {
-    bar.setBar(23 - b, LED_YELLOW);
+  for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
+    setBar(b, LED_YELLOW);
     bar.writeDisplay();
     delay(50);
-    bar.setBar(23 - b, LED_OFF);
+    setBar(b, LED_OFF);
     bar.writeDisplay();
   }
 }
@@ -475,10 +518,10 @@ void flasherTest()
 void ledTest()
 {
   // led TEST
-  digitalWrite(ledYellowPin, HIGH);   // turn the LED on (HIGH is the voltage level)
+  setLedYellow(LED_YELLOW);
   digitalWrite(ledRedPin, LOW);    // turn the LED off by making the voltage LOW
   delay(1000);              // wait for a second
-  digitalWrite(ledYellowPin, LOW);    // turn the LED off by making the voltage LOW
+  setLedYellow(LED_OFF);
   digitalWrite(ledRedPin, HIGH);   // turn the LED on (HIGH is the voltage level)
   delay(1000);              // wait for a second
 }
