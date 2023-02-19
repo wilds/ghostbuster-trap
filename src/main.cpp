@@ -18,12 +18,12 @@ uint8_t servoLPin = 6;
 // pins for single LEDs
 uint8_t ledRedPin = 14;
 
-bool ledYellowIsSegment = false;  //yellow led is connected to HT16K33?
-uint8_t ledYellowPin = 15;      //adruino pin if ledYellowIsSegment=false
+//bool ledYellowIsSegment = false;  //yellow led is connected to HT16K33?
+//uint8_t ledYellowPin = 15;      //adruino pin if ledYellowIsSegment=false
                                 //seg-num if ledYellowIsSegment=true
-                                
-//uint8_t ledYellowPin = 11;  //segment number
-//bool ledYellowIsSegment = true;
+
+uint8_t ledYellowPin = 10;  //segment number
+bool ledYellowIsSegment = true;
 
 // activation button pin
 uint8_t activationSwitchPin = 4;
@@ -40,6 +40,7 @@ uint8_t flasherPins[3] = {10, 11, 12};
 //#define BAR_24BARGRAPH
 #define BAR_8X16MATRIX    //HT16K33 connected to 10 or 12 segment led
 #define NUMBER_OF_SEGMENT 10
+#define HT16K33_ADDRESS 0x70
 
 
 #if defined(AUDIO_VS1053)
@@ -137,7 +138,12 @@ void setup() {
   }
 
   // init the bargraph LEDs
-  bar.begin(0x70);  // pass in the address
+  if (bar.begin(HT16K33_ADDRESS)) {  // pass in the address
+    Serial.println("HT16K33 init OK");
+    bar.setRotation(1);
+  } else {
+    Serial.println("HT16K33 error");
+  }
 
   for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
     setBar(b, LED_YELLOW);
@@ -244,7 +250,7 @@ void loop()
     servoR.write(servoOpenR);
     servoL.write(servoOpenL);
 
-   
+
     // smoke on
     if (!smokeActive && millis() > smokeToggleTime)
     {
@@ -254,7 +260,7 @@ void loop()
       // smoke for 4 seconds
       smokeToggleTime = millis() + 4000;
     }
-    
+
     // turn on middle flasher
     activeFlasher = flasherPins[1];
     digitalWrite(activeFlasher, HIGH);
@@ -289,7 +295,7 @@ void loop()
       digitalWrite(smokePin, LOW);
     }
 
-        // playSFX
+    // playSFX
     #if defined(AUDIO_VS1053)
     musicPlayer.stopPlaying();
     musicPlayer.playFullFile("capture.mp3");
@@ -307,11 +313,11 @@ void loop()
     delay(doorDelay);
     servoR.write(servoCloseR);
 
-    
+
     // Turn off servos (avoids twitching)
     //servoL.detach();
     //servoR.detach();
-    
+
     // fill bargraph
     for (uint8_t b = 0; b < NUMBER_OF_SEGMENT; ++b) {
       setBar(b, LED_YELLOW);
@@ -331,9 +337,9 @@ void loop()
     musicPlayer.volume(15);
     musicPlayer.play(4);
     #endif
-  
+
   }
-  
+
   // reset
   else if (remotePressed && trapState == 2)
   {
@@ -431,10 +437,10 @@ void loop()
 
 void setBar(uint8_t seg, uint8_t color) {
 #if defined(BAR_24BARGRAPH)
-  bar.setBar(bar, color);
+  bar.setBar(seg, color);
 #elif defined(BAR_8X16MATRIX)
   bar.drawPixel(seg, 0, color);
-#endif  
+#endif
 }
 
 
@@ -526,7 +532,7 @@ void ledTest()
   delay(1000);              // wait for a second
 }
 
-#ifdef AUDIO_VS1053 
+#ifdef AUDIO_VS1053
 /// File listing helper
 void printDirectory(File dir, int numTabs) {
   while (true) {
